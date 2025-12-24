@@ -66,3 +66,4 @@ Files that **should NOT be committed** (already handled by `.gitignore`):
 
 No extra `requirements.txt` is needed; dependencies are managed via `package.json`.
 "# front-end" 
+"# front-end" 
