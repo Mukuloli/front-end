@@ -65,3 +65,4 @@ Files that **should NOT be committed** (already handled by `.gitignore`):
 4. Deploy (or let Vercel auto-deploy).
 
 No extra `requirements.txt` is needed; dependencies are managed via `package.json`.
+"# front-end" 
