@@ -550,7 +550,7 @@ export default function ChatInterface() {
         )}
 
         {/* Messages Container */}
-        <div className="flex-1 overflow-y-auto bg-white">
+        <div className="flex-1 overflow-y-auto bg-white pb-24 sm:pb-0">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full px-4 py-8 max-w-3xl mx-auto">
               <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center mb-4 sm:mb-6 shadow-lg">
