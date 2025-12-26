@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { Send, User, Sparkles, Menu, Plus, AlertCircle, X } from 'lucide-react';
+import { Send, User, Sparkles, Menu, Plus, AlertCircle, X, LogOut, ChevronDown } from 'lucide-react';
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState([]);
@@ -10,12 +10,22 @@ export default function ChatInterface() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [topicsOpen, setTopicsOpen] = useState(false);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const displayName = user?.displayName || user?.email || 'User';
   const emailLabel = user?.email || 'Signed out';
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.replace('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
 
   useEffect(() => {
     if (!user) {
@@ -43,18 +53,18 @@ export default function ChatInterface() {
       e.preventDefault();
       e.stopPropagation();
     }
-    
+
     if (!input.trim() || isLoading) return;
 
     const userMessage = input.trim();
     setInput('');
     setError(null);
-    
+
     // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-    
+
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
 
@@ -77,48 +87,108 @@ export default function ChatInterface() {
         }),
       });
 
-      const raw = await response.text();
-
       if (!response.ok) {
-        // Try to parse error json; otherwise use raw text
-        let errDetail = raw;
+        const errorText = await response.text();
+        let errDetail = errorText;
         try {
-          const errorData = JSON.parse(raw);
-          errDetail = errorData.detail || raw;
+          const errorData = JSON.parse(errorText);
+          errDetail = errorData.detail || errorText;
         } catch {
           /* ignore parse error */
         }
         throw new Error(errDetail || `HTTP error! status: ${response.status}`);
       }
 
-      // Try JSON, otherwise treat as plain text response
-      let data;
-      let reply = '';
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        reply = raw?.trim() || '';
+      // Check if response supports streaming
+      const reader = response.body?.getReader();
+      if (!reader) {
+        // Fallback to non-streaming
+        const raw = await response.text();
+        let data, reply = '';
+        try {
+          data = JSON.parse(raw);
+          reply = data.answer || data.response || data.content || data.message || '';
+        } catch {
+          reply = raw?.trim() || '';
+        }
+
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastMessage = newMessages[newMessages.length - 1];
+          if (lastMessage && lastMessage.role === 'assistant') {
+            lastMessage.content = reply || 'No response received.';
+            lastMessage.sources = (data && data.sources) || [];
+          }
+          return newMessages;
+        });
+        return;
       }
 
-      if (data && typeof data === 'object') {
-        reply =
-          data.answer ||
-          data.response ||
-          data.content ||
-          data.message ||
-          data.choices?.[0]?.message?.content ||
-          '';
+      // Streaming implementation
+      const decoder = new TextDecoder();
+      let accumulatedText = '';
+      let sources = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+
+        // Try to parse as JSON (for structured streaming)
+        try {
+          const lines = chunk.split('\n').filter(line => line.trim());
+
+          for (const line of lines) {
+            // Handle SSE format
+            const cleanLine = line.replace(/^data:\s*/, '').trim();
+            if (!cleanLine || cleanLine === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(cleanLine);
+              const text = parsed.answer || parsed.response || parsed.content || parsed.message || parsed.delta || '';
+
+              if (text) {
+                accumulatedText += text;
+              }
+
+              if (parsed.sources) {
+                sources = parsed.sources;
+              }
+            } catch {
+              // Not JSON, treat as plain text
+              accumulatedText += cleanLine;
+            }
+          }
+        } catch {
+          // Plain text streaming
+          accumulatedText += chunk;
+        }
+
+        // Update message with accumulated text
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastMessage = newMessages[newMessages.length - 1];
+          if (lastMessage && lastMessage.role === 'assistant') {
+            lastMessage.content = accumulatedText;
+            lastMessage.sources = sources;
+          }
+          return newMessages;
+        });
       }
 
+      // Final update to ensure everything is set
       setMessages(prev => {
         const newMessages = [...prev];
         const lastMessage = newMessages[newMessages.length - 1];
         if (lastMessage && lastMessage.role === 'assistant') {
-          lastMessage.content = reply || 'No response received.';
-          lastMessage.sources = (data && data.sources) || [];
+          lastMessage.content = accumulatedText || 'No response received.';
+          lastMessage.sources = sources;
         }
         return newMessages;
       });
+
     } catch (error) {
       console.error('Error:', error);
       setError(error.message);
@@ -148,7 +218,7 @@ export default function ChatInterface() {
     const userMessage = topic.question;
     setInput('');
     setError(null);
-    
+
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
 
@@ -171,46 +241,108 @@ export default function ChatInterface() {
         }),
       });
 
-      const raw = await response.text();
-
       if (!response.ok) {
-        let errDetail = raw;
+        const errorText = await response.text();
+        let errDetail = errorText;
         try {
-          const errorData = JSON.parse(raw);
-          errDetail = errorData.detail || raw;
+          const errorData = JSON.parse(errorText);
+          errDetail = errorData.detail || errorText;
         } catch {
           /* ignore parse error */
         }
         throw new Error(errDetail || `HTTP error! status: ${response.status}`);
       }
 
-      let data;
-      let reply = '';
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        reply = raw?.trim() || '';
+      // Check if response supports streaming
+      const reader = response.body?.getReader();
+      if (!reader) {
+        // Fallback to non-streaming
+        const raw = await response.text();
+        let data, reply = '';
+        try {
+          data = JSON.parse(raw);
+          reply = data.answer || data.response || data.content || data.message || '';
+        } catch {
+          reply = raw?.trim() || '';
+        }
+
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastMessage = newMessages[newMessages.length - 1];
+          if (lastMessage && lastMessage.role === 'assistant') {
+            lastMessage.content = reply || 'No response received.';
+            lastMessage.sources = (data && data.sources) || [];
+          }
+          return newMessages;
+        });
+        return;
       }
 
-      if (data && typeof data === 'object') {
-        reply =
-          data.answer ||
-          data.response ||
-          data.content ||
-          data.message ||
-          data.choices?.[0]?.message?.content ||
-          '';
+      // Streaming implementation
+      const decoder = new TextDecoder();
+      let accumulatedText = '';
+      let sources = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+
+        // Try to parse as JSON (for structured streaming)
+        try {
+          const lines = chunk.split('\n').filter(line => line.trim());
+
+          for (const line of lines) {
+            // Handle SSE format
+            const cleanLine = line.replace(/^data:\s*/, '').trim();
+            if (!cleanLine || cleanLine === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(cleanLine);
+              const text = parsed.answer || parsed.response || parsed.content || parsed.message || parsed.delta || '';
+
+              if (text) {
+                accumulatedText += text;
+              }
+
+              if (parsed.sources) {
+                sources = parsed.sources;
+              }
+            } catch {
+              // Not JSON, treat as plain text
+              accumulatedText += cleanLine;
+            }
+          }
+        } catch {
+          // Plain text streaming
+          accumulatedText += chunk;
+        }
+
+        // Update message with accumulated text
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastMessage = newMessages[newMessages.length - 1];
+          if (lastMessage && lastMessage.role === 'assistant') {
+            lastMessage.content = accumulatedText;
+            lastMessage.sources = sources;
+          }
+          return newMessages;
+        });
       }
 
+      // Final update to ensure everything is set
       setMessages(prev => {
         const newMessages = [...prev];
         const lastMessage = newMessages[newMessages.length - 1];
         if (lastMessage && lastMessage.role === 'assistant') {
-          lastMessage.content = reply || 'No response received.';
-          lastMessage.sources = (data && data.sources) || [];
+          lastMessage.content = accumulatedText || 'No response received.';
+          lastMessage.sources = sources;
         }
         return newMessages;
       });
+
     } catch (error) {
       console.error('Error:', error);
       setError(error.message);
@@ -230,7 +362,7 @@ export default function ChatInterface() {
   const SidebarContent = () => (
     <>
       <div className="p-3 sm:p-4 border-b border-gray-200">
-        <button 
+        <button
           onClick={() => {
             setMessages([]);
             setError(null);
@@ -242,22 +374,31 @@ export default function ChatInterface() {
           <span className="font-medium text-gray-700">New Chat</span>
         </button>
       </div>
-      
+
       <div className="flex-1 overflow-y-auto p-2 sm:p-3 space-y-1">
-        <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-          Recent Topics
-        </div>
-        {recentTopics.map((item, i) => (
-          <button
-            key={i}
-            onClick={() => handleTopicClick(item)}
-            disabled={isLoading}
-            className="w-full flex items-center gap-2 sm:gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
-          >
-            <span className="text-base sm:text-lg flex-shrink-0">{item.icon}</span>
-            <span className="text-sm text-gray-700 truncate">{item.title}</span>
-          </button>
-        ))}
+        <button
+          onClick={() => setTopicsOpen(!topicsOpen)}
+          className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+        >
+          <span className="uppercase tracking-wider">Recent Topics</span>
+          <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${topicsOpen ? 'rotate-180' : ''}`} />
+        </button>
+
+        {topicsOpen && (
+          <div className="space-y-1 mt-1">
+            {recentTopics.map((item, i) => (
+              <button
+                key={i}
+                onClick={() => handleTopicClick(item)}
+                disabled={isLoading}
+                className="w-full flex items-center gap-2 sm:gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
+              >
+                <span className="text-base sm:text-lg flex-shrink-0">{item.icon}</span>
+                <span className="text-sm text-gray-700 truncate">{item.title}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="p-3 sm:p-4 border-t border-gray-200">
@@ -269,6 +410,13 @@ export default function ChatInterface() {
             <p className="text-sm font-medium text-gray-900 truncate">{displayName}</p>
             <p className="text-xs text-gray-500 truncate">{emailLabel}</p>
           </div>
+          <button
+            onClick={handleLogout}
+            className="p-2 bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 rounded-lg transition-all shadow-sm hover:shadow-md"
+            title="Logout"
+          >
+            <LogOut className="w-4 h-4 text-white" />
+          </button>
         </div>
       </div>
     </>
@@ -278,7 +426,7 @@ export default function ChatInterface() {
     <div className="flex h-screen bg-white overflow-hidden">
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
@@ -290,14 +438,13 @@ export default function ChatInterface() {
       </div>
 
       {/* Sidebar - Mobile */}
-      <div 
-        className={`fixed inset-y-0 left-0 w-64 sm:w-72 bg-gray-50 border-r border-gray-200 flex flex-col z-50 transform transition-transform duration-300 ease-in-out md:hidden ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+      <div
+        className={`fixed inset-y-0 left-0 w-64 sm:w-72 bg-gray-50 border-r border-gray-200 flex flex-col z-50 transform transition-transform duration-300 ease-in-out md:hidden ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
       >
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900">Menu</h2>
-          <button 
+          <button
             onClick={() => setSidebarOpen(false)}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
@@ -312,7 +459,7 @@ export default function ChatInterface() {
         {/* Header */}
         <div className="flex items-center justify-between px-3 sm:px-4 lg:px-6 py-3 sm:py-4 border-b border-gray-200 bg-white flex-shrink-0">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <button 
+            <button
               onClick={() => setSidebarOpen(true)}
               className="md:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
             >
@@ -325,7 +472,7 @@ export default function ChatInterface() {
               <h1 className="text-base sm:text-lg font-semibold text-gray-900 truncate">DSA & Networking AI</h1>
             </div>
           </div>
-          <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
             <span className="hidden sm:inline-block px-2 sm:px-3 py-1 text-xs font-medium text-gray-600 bg-gray-100 rounded-full whitespace-nowrap">
               RAG-Powered
             </span>
@@ -338,6 +485,14 @@ export default function ChatInterface() {
                 <span className="text-[11px] text-gray-500 truncate max-w-[160px]">{emailLabel}</span>
               </div>
             </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 rounded-lg transition-all shadow-md hover:shadow-lg"
+              title="Logout"
+            >
+              <LogOut className="w-4 h-4 text-white" />
+              <span className="hidden sm:inline text-sm font-semibold text-white">Logout</span>
+            </button>
           </div>
         </div>
 
@@ -347,7 +502,7 @@ export default function ChatInterface() {
             <div className="flex items-start sm:items-center gap-2 text-red-800 max-w-3xl mx-auto">
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 sm:mt-0" />
               <p className="text-xs sm:text-sm flex-1 break-words">{error}</p>
-              <button 
+              <button
                 onClick={() => setError(null)}
                 className="text-red-600 hover:text-red-800 text-xl font-bold flex-shrink-0 -mt-1"
               >
@@ -372,22 +527,20 @@ export default function ChatInterface() {
               {messages.map((message, index) => (
                 <div
                   key={index}
-                  className={`flex gap-2 sm:gap-3 lg:gap-4 mb-4 sm:mb-6 lg:mb-8 ${
-                    message.role === 'user' ? 'justify-end' : 'justify-start'
-                  }`}
+                  className={`flex gap-2 sm:gap-3 lg:gap-4 mb-4 sm:mb-6 lg:mb-8 ${message.role === 'user' ? 'justify-end' : 'justify-start'
+                    }`}
                 >
                   {message.role === 'assistant' && (
                     <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center shadow-sm">
                       <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
                     </div>
                   )}
-                  
+
                   <div
-                    className={`max-w-[85%] sm:max-w-[80%] ${
-                      message.role === 'user'
-                        ? 'bg-gray-900 text-white rounded-2xl rounded-tr-sm px-4 sm:px-5 py-2.5 sm:py-3 shadow-lg'
-                        : 'bg-transparent text-gray-800'
-                    }`}
+                    className={`max-w-[85%] sm:max-w-[80%] ${message.role === 'user'
+                      ? 'bg-gray-900 text-white rounded-2xl rounded-tr-sm px-4 sm:px-5 py-2.5 sm:py-3 shadow-lg'
+                      : 'bg-transparent text-gray-800'
+                      }`}
                   >
                     <p className="text-sm sm:text-[15px] leading-relaxed whitespace-pre-wrap break-words">
                       {message.content}
@@ -402,7 +555,7 @@ export default function ChatInterface() {
                         <span className="inline-block w-1 h-4 bg-gray-600 animate-pulse ml-0.5"></span>
                       )}
                     </p>
-                    
+
                     {/* Show sources if available */}
                     {message.sources && message.sources.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-gray-200">
@@ -446,7 +599,7 @@ export default function ChatInterface() {
                 }}
                 placeholder="Ask anything about DSA or Networking..."
                 rows={1}
-                className="w-full px-4 sm:px-5 py-3 sm:py-4 pr-12 sm:pr-14 bg-transparent text-sm sm:text-base text-gray-900 placeholder-gray-400 focus:outline-none resize-none max-h-32 overflow-y-auto"
+                className="w-full px-4 sm:px-5 py-3 sm:py-4 pr-12 sm:pr-14 bg-transparent text-sm sm:text-base text-gray-900 placeholder-gray-400 focus:outline-none resize-none max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent"
                 disabled={isLoading}
               />
               <button
