@@ -11,6 +11,7 @@ export default function ChatInterface() {
   const [error, setError] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [topicsOpen, setTopicsOpen] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const router = useRouter();
@@ -25,6 +26,11 @@ export default function ChatInterface() {
     } catch (error) {
       console.error('Logout error:', error);
     }
+  };
+
+  const confirmLogout = () => {
+    setShowLogoutConfirm(false);
+    handleLogout();
   };
 
   useEffect(() => {
@@ -411,7 +417,7 @@ export default function ChatInterface() {
             <p className="text-xs text-gray-500 truncate">{emailLabel}</p>
           </div>
           <button
-            onClick={handleLogout}
+            onClick={() => setShowLogoutConfirm(true)}
             className="p-2 bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 rounded-lg transition-all shadow-sm hover:shadow-md"
             title="Logout"
           >
@@ -430,6 +436,37 @@ export default function ChatInterface() {
           className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
+      )}
+
+      {/* Logout Confirmation Modal */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 sm:p-8">
+            <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-red-500 to-orange-500">
+              <LogOut className="w-8 h-8 text-white" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 text-center mb-2">
+              Logout Confirmation
+            </h2>
+            <p className="text-gray-600 text-center mb-6 sm:mb-8">
+              Are you sure you want to logout?
+            </p>
+            <div className="flex gap-3 sm:gap-4">
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-lg transition-colors"
+              >
+                No
+              </button>
+              <button
+                onClick={confirmLogout}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 text-white font-semibold rounded-lg transition-all shadow-md hover:shadow-lg"
+              >
+                Yes, Logout
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Sidebar - Desktop */}
@@ -486,7 +523,7 @@ export default function ChatInterface() {
               </div>
             </div>
             <button
-              onClick={handleLogout}
+              onClick={() => setShowLogoutConfirm(true)}
               className="flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 rounded-lg transition-all shadow-md hover:shadow-lg"
               title="Logout"
             >
@@ -584,7 +621,7 @@ export default function ChatInterface() {
         </div>
 
         {/* Input Area */}
-        <div className="border-t border-gray-200 bg-white px-3 sm:px-4 py-3 sm:py-4 flex-shrink-0">
+        <div className="border-t border-gray-200 bg-white px-3 sm:px-4 py-3 sm:py-4 flex-shrink-0 fixed sm:relative bottom-0 left-0 right-0 z-30">
           <form onSubmit={handleSubmit} className="max-w-3xl mx-auto">
             <div className="relative bg-white border border-gray-300 rounded-xl sm:rounded-2xl shadow-sm hover:shadow-md transition-shadow focus-within:border-gray-400 focus-within:shadow-md">
               <textarea
