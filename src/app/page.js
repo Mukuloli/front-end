@@ -30,8 +30,50 @@ const formatResponseText = (text) => {
   // Handle smashed headers in the middle of text: "...text.###Heading" -> "...text.\n\n### Heading"
   formatted = formatted.replace(/([^\n])(#{1,6})([^#\s])/g, '$1\n\n$2 $3');
 
-  // STEP 4: Final cleanup of triple+ newlines and trimming
+  // STEP 4: Fix smashed words (SearchEngines -> Search Engines)
+  // CamelCase splitting
+  formatted = formatted.replace(/([a-z])([A-Z])/g, '$1 $2');
+
+  // STEP 5: Fix punctuation spacing (Age.Some -> Age. Some)
+  formatted = formatted.replace(/([a-z])([.!?])([A-Z])/g, '$1$2 $3');
+  formatted = formatted.replace(/([a-z])([,;])([a-z])/g, '$1$2 $3');
+
+  // STEP 6: Surgical splitting for common technical and "glue" words
+  // These are words that commonly get smashed in these RAG responses
+  const techGlue = ['search', 'engines', 'results', 'content', 'online', 'web', 'internet', 'include', 'using', 'based', 'often', 'popular'];
+  techGlue.forEach(word => {
+    // Only split if the word is clearly part of a smash (at least 3 chars on one side)
+    const regex1 = new RegExp(`([a-z]{3,})(${word})`, 'gi');
+    formatted = formatted.replace(regex1, '$1 $2');
+    const regex2 = new RegExp(`(${word})([a-z]{3,})`, 'gi');
+    formatted = formatted.replace(regex2, '$1 $2');
+  });
+
+  // STEP 7: Split common "glue" words if sandwiched
+  const commonConnectors = ['the', 'and', 'with', 'from', 'this', 'that'];
+  commonConnectors.forEach(word => {
+    // Split if the word is sandwiched between two lowercase strings (e.g., searchtheweb -> search the web)
+    const regex = new RegExp(`([a-z]{3,})(${word})([a-z]{3,})`, 'gi');
+    formatted = formatted.replace(regex, '$1 $2 $3');
+  });
+
+  // STEP 8: Specific common smashes observed in your examples
+  const specificSmashes = [
+    [/WorldWide/g, 'World Wide'],
+    [/basedon/g, 'based on'],
+    [/ofinherent/g, 'of inherent'],
+    [/thembased/g, 'them based']
+  ];
+  specificSmashes.forEach(([regex, replacement]) => {
+    formatted = formatted.replace(regex, replacement);
+  });
+
+  // STEP 9: Remove literal asterisks (often used for citations)
+  formatted = formatted.replace(/\*/g, '');
+
+  // STEP 10: Final cleanup of triple+ newlines and trimming
   formatted = formatted.replace(/\n{3,}/g, '\n\n');
+  formatted = formatted.replace(/[ \t]{2,}/g, ' '); // Clean up any double spaces but preserve newlines
 
   return formatted.trim();
 };
@@ -630,19 +672,7 @@ export default function ChatInterface() {
                       )}
                     </div>
 
-                    {/* Show sources if available */}
-                    {message.sources && message.sources.length > 0 && (
-                      <div className="mt-3 pt-3 border-t border-gray-200">
-                        <p className="text-xs text-gray-500 font-medium mb-1">Sources:</p>
-                        <div className="flex flex-wrap gap-1">
-                          {message.sources.map((source, idx) => (
-                            <span key={idx} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
-                              {source.namespace}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+
                   </div>
 
                   {message.role === 'user' && (
