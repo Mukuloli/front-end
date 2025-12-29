@@ -114,7 +114,7 @@ export default function ChatInterface() {
     }
   }, [user, router]);
 
-  const updateRecentTopics = (question, answer) => {
+  const updateRecentTopics = (question) => {
     if (!user) return;
 
     setRecentTopics(prev => {
@@ -125,8 +125,7 @@ export default function ChatInterface() {
       const newTopic = {
         title: question,
         icon: "💬",
-        question: question,
-        answer: answer // Cache the answer for session-only use
+        question: question
       };
 
       const updated = [newTopic, ...filtered].slice(0, 10);
@@ -210,7 +209,7 @@ export default function ChatInterface() {
         });
 
         // Update recent topics on success
-        updateRecentTopics(userMessage, reply || 'No response received.');
+        updateRecentTopics(userMessage);
         return;
       }
 
@@ -260,7 +259,7 @@ export default function ChatInterface() {
       });
 
       // Update recent topics on success
-      updateRecentTopics(userMessage, accumulatedText || 'No response received.');
+      updateRecentTopics(userMessage);
 
     } catch (error) {
       console.error('Error:', error);
@@ -297,22 +296,10 @@ export default function ChatInterface() {
     await processQuestion(userMessage);
   };
 
-  const handleTopicClick = async (topic) => {
+  const handleTopicClick = (topic) => {
     setSidebarOpen(false);
     if (!topic.question || isLoading) return;
-
-    // If we already have the answer, just show it immediately WITHOUT fetching
-    if (topic.answer) {
-      setMessages(prev => [
-        ...prev,
-        { role: 'user', content: topic.question },
-        { role: 'assistant', content: topic.answer }
-      ]);
-      return;
-    }
-
-    // Fallback: if for some reason answer is missing, fetch it
-    await processQuestion(topic.question);
+    setInput(topic.question);
   };
 
   const SidebarContent = () => (
