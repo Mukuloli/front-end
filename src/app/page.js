@@ -3,38 +3,37 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Send, User, Sparkles, Menu, Plus, AlertCircle, X, LogOut, ChevronDown } from 'lucide-react';
+import MarkdownMessage from '@/components/MarkdownMessage';
 
 // Utility function to format response text
 const formatResponseText = (text) => {
   if (!text) return '';
 
-  // Step 1: Add spaces between concatenated words
-  // This regex finds lowercase letter followed by uppercase letter and adds space
-  let formatted = text.replace(/([a-z])([A-Z])/g, '$1 $2');
+  let formatted = text;
 
-  // Step 2: Fix common concatenations
-  formatted = formatted.replace(/([a-z])(\d)/g, '$1 $2'); // letter followed by number
-  formatted = formatted.replace(/(\d)([a-z])/gi, '$1 $2'); // number followed by letter
+  // STEP 1: Preservation - protect IP addresses and version numbers first
+  formatted = formatted.replace(/(\d+)\s*\.\s*(\d+)\s*\.\s*(\d+)\s*\.\s*(\d+)/g, '$1.$2.$3.$4');
+  formatted = formatted.replace(/(\d+)\s*\.\s*(\d+)/g, '$1.$2');
 
-  // Step 3: Format numbered lists - ensure they start on new lines
-  formatted = formatted.replace(/(\d+)\.\s*/g, '\n\n$1. ');
+  // STEP 2: Restore missing newlines before markdown elements
+  // Inject newline before headers if smashed: "...text.### Header" -> "...text.\n\n### Header"
+  formatted = formatted.replace(/([^\n])(#{1,6}\s+)/g, '$1\n\n$2');
 
-  // Step 4: Clean up multiple consecutive spaces
-  formatted = formatted.replace(/ {2,}/g, ' ');
+  // Inject newline before list items if smashed: "...text.- Item" -> "...text.\n- Item"
+  formatted = formatted.replace(/([^\n])(\s*[-*]\s+)/g, '$1\n$2');
 
-  // Step 5: Clean up excessive line breaks (max 2 consecutive)
+  // Inject newline before numbered lists: "...text.1. Item" -> "...text.\n1. Item"
+  formatted = formatted.replace(/([^\n])(\s*\d+\.\s+)/g, '$1\n$2');
+
+  // STEP 3: Ensure space after # for headers if missing: "###Heading" -> "### Heading"
+  formatted = formatted.replace(/^(#{1,6})([^#\s])/gm, '$1 $2');
+  // Handle smashed headers in the middle of text: "...text.###Heading" -> "...text.\n\n### Heading"
+  formatted = formatted.replace(/([^\n])(#{1,6})([^#\s])/g, '$1\n\n$2 $3');
+
+  // STEP 4: Final cleanup of triple+ newlines and trimming
   formatted = formatted.replace(/\n{3,}/g, '\n\n');
 
-  // Step 6: Ensure proper spacing after periods
-  formatted = formatted.replace(/\.([A-Z])/g, '. $1');
-
-  // Step 7: Remove spaces before punctuation
-  formatted = formatted.replace(/\s+([.,;:!?])/g, '$1');
-
-  // Step 8: Trim leading/trailing whitespace
-  formatted = formatted.trim();
-
-  return formatted;
+  return formatted.trim();
 };
 
 export default function ChatInterface() {
@@ -155,7 +154,7 @@ export default function ChatInterface() {
           const newMessages = [...prev];
           const lastMessage = newMessages[newMessages.length - 1];
           if (lastMessage && lastMessage.role === 'assistant') {
-            lastMessage.content = reply || 'No response received.';
+            lastMessage.content = formatResponseText(reply) || 'No response received.';
             lastMessage.sources = (data && data.sources) || [];
           }
           return newMessages;
@@ -205,24 +204,24 @@ export default function ChatInterface() {
           accumulatedText += chunk;
         }
 
-        // Update message with accumulated text
+        // Update message with accumulated text (formatted)
         setMessages(prev => {
           const newMessages = [...prev];
           const lastMessage = newMessages[newMessages.length - 1];
           if (lastMessage && lastMessage.role === 'assistant') {
-            lastMessage.content = accumulatedText;
+            lastMessage.content = formatResponseText(accumulatedText);
             lastMessage.sources = sources;
           }
           return newMessages;
         });
       }
 
-      // Final update to ensure everything is set
+      // Final update to ensure everything is set (formatted)
       setMessages(prev => {
         const newMessages = [...prev];
         const lastMessage = newMessages[newMessages.length - 1];
         if (lastMessage && lastMessage.role === 'assistant') {
-          lastMessage.content = accumulatedText || 'No response received.';
+          lastMessage.content = formatResponseText(accumulatedText) || 'No response received.';
           lastMessage.sources = sources;
         }
         return newMessages;
@@ -309,7 +308,7 @@ export default function ChatInterface() {
           const newMessages = [...prev];
           const lastMessage = newMessages[newMessages.length - 1];
           if (lastMessage && lastMessage.role === 'assistant') {
-            lastMessage.content = reply || 'No response received.';
+            lastMessage.content = formatResponseText(reply) || 'No response received.';
             lastMessage.sources = (data && data.sources) || [];
           }
           return newMessages;
@@ -359,24 +358,24 @@ export default function ChatInterface() {
           accumulatedText += chunk;
         }
 
-        // Update message with accumulated text
+        // Update message with accumulated text (formatted)
         setMessages(prev => {
           const newMessages = [...prev];
           const lastMessage = newMessages[newMessages.length - 1];
           if (lastMessage && lastMessage.role === 'assistant') {
-            lastMessage.content = accumulatedText;
+            lastMessage.content = formatResponseText(accumulatedText);
             lastMessage.sources = sources;
           }
           return newMessages;
         });
       }
 
-      // Final update to ensure everything is set
+      // Final update to ensure everything is set (formatted)
       setMessages(prev => {
         const newMessages = [...prev];
         const lastMessage = newMessages[newMessages.length - 1];
         if (lastMessage && lastMessage.role === 'assistant') {
-          lastMessage.content = accumulatedText || 'No response received.';
+          lastMessage.content = formatResponseText(accumulatedText) || 'No response received.';
           lastMessage.sources = sources;
         }
         return newMessages;
@@ -612,8 +611,13 @@ export default function ChatInterface() {
                       : 'bg-transparent text-gray-800'
                       }`}
                   >
-                    <p className="text-base sm:text-lg leading-relaxed whitespace-pre-wrap break-words">
-                      {message.role === 'assistant' ? formatResponseText(message.content) : message.content}
+                    <div className="text-base sm:text-lg leading-relaxed break-words">
+                      {message.role === 'assistant' ? (
+                        <MarkdownMessage content={message.content} />
+                      ) : (
+                        <p className="whitespace-pre-wrap">{message.content}</p>
+                      )}
+
                       {message.role === 'assistant' && !message.content && isLoading && (
                         <span className="inline-flex gap-1 ml-1">
                           <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
@@ -622,9 +626,9 @@ export default function ChatInterface() {
                         </span>
                       )}
                       {message.role === 'assistant' && message.content && isLoading && (
-                        <span className="inline-block w-1 h-4 bg-gray-600 animate-pulse ml-0.5"></span>
+                        <span className="inline-block w-1 h-4 bg-gray-600 animate-pulse ml-0.5 mt-1"></span>
                       )}
-                    </p>
+                    </div>
 
                     {/* Show sources if available */}
                     {message.sources && message.sources.length > 0 && (
