@@ -86,6 +86,7 @@ export default function ChatInterface() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [topicsOpen, setTopicsOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [recentTopics, setRecentTopics] = useState([]);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const router = useRouter();
@@ -113,6 +114,26 @@ export default function ChatInterface() {
     }
   }, [user, router]);
 
+  const updateRecentTopics = (question, answer) => {
+    if (!user) return;
+
+    setRecentTopics(prev => {
+      // Find if topic already exists
+      const filtered = prev.filter(t => t.question.toLowerCase() !== question.toLowerCase());
+
+      // Add new topic at the beginning
+      const newTopic = {
+        title: question,
+        icon: "💬",
+        question: question,
+        answer: answer // Cache the answer for session-only use
+      };
+
+      const updated = [newTopic, ...filtered].slice(0, 10);
+      return updated;
+    });
+  };
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -128,187 +149,23 @@ export default function ChatInterface() {
     }
   }, [input]);
 
-  const handleSubmit = async (e) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
+  const processQuestion = async (userMessage) => {
+    if (!userMessage.trim() || isLoading) return;
 
-    if (!input.trim() || isLoading) return;
-
-    const userMessage = input.trim();
-    setInput('');
     setError(null);
-
-    // Reset textarea height
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
-
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
 
-    // Add placeholder assistant message (non-streaming)
-    setMessages(prev => [...prev, { role: 'assistant', content: '', sources: [] }]);
+    // Add user message and a placeholder assistant message
+    setMessages(prev => [
+      ...prev,
+      { role: 'user', content: userMessage },
+      { role: 'assistant', content: '', sources: [] }
+    ]);
 
-    const RAG_API_URL =
-      process.env.NEXT_PUBLIC_RAG_API_URL;
-
-    try {
-      const response = await fetch(RAG_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          question: userMessage,
-          namespace: 'default',
-          top_k: 5
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errDetail = errorText;
-        try {
-          const errorData = JSON.parse(errorText);
-          errDetail = errorData.detail || errorText;
-        } catch {
-          /* ignore parse error */
-        }
-        throw new Error(errDetail || `HTTP error! status: ${response.status}`);
-      }
-
-      // Check if response supports streaming
-      const reader = response.body?.getReader();
-      if (!reader) {
-        // Fallback to non-streaming
-        const raw = await response.text();
-        let data, reply = '';
-        try {
-          data = JSON.parse(raw);
-          reply = data.answer || data.response || data.content || data.message || '';
-        } catch {
-          reply = raw?.trim() || '';
-        }
-
-        setMessages(prev => {
-          const newMessages = [...prev];
-          const lastMessage = newMessages[newMessages.length - 1];
-          if (lastMessage && lastMessage.role === 'assistant') {
-            lastMessage.content = formatResponseText(reply) || 'No response received.';
-            lastMessage.sources = (data && data.sources) || [];
-          }
-          return newMessages;
-        });
-        return;
-      }
-
-      // Streaming implementation
-      const decoder = new TextDecoder();
-      let accumulatedText = '';
-      let sources = [];
-
-      while (true) {
-        const { done, value } = await reader.read();
-
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-
-        // Try to parse as JSON (for structured streaming)
-        try {
-          const lines = chunk.split('\n').filter(line => line.trim());
-
-          for (const line of lines) {
-            // Handle SSE format
-            const cleanLine = line.replace(/^data:\s*/, '').trim();
-            if (!cleanLine || cleanLine === '[DONE]') continue;
-
-            try {
-              const parsed = JSON.parse(cleanLine);
-              const text = parsed.answer || parsed.response || parsed.content || parsed.message || parsed.delta || '';
-
-              if (text) {
-                accumulatedText += text;
-              }
-
-              if (parsed.sources) {
-                sources = parsed.sources;
-              }
-            } catch {
-              // Not JSON, treat as plain text
-              accumulatedText += cleanLine;
-            }
-          }
-        } catch {
-          // Plain text streaming
-          accumulatedText += chunk;
-        }
-
-        // Update message with accumulated text (formatted)
-        setMessages(prev => {
-          const newMessages = [...prev];
-          const lastMessage = newMessages[newMessages.length - 1];
-          if (lastMessage && lastMessage.role === 'assistant') {
-            lastMessage.content = formatResponseText(accumulatedText);
-            lastMessage.sources = sources;
-          }
-          return newMessages;
-        });
-      }
-
-      // Final update to ensure everything is set (formatted)
-      setMessages(prev => {
-        const newMessages = [...prev];
-        const lastMessage = newMessages[newMessages.length - 1];
-        if (lastMessage && lastMessage.role === 'assistant') {
-          lastMessage.content = formatResponseText(accumulatedText) || 'No response received.';
-          lastMessage.sources = sources;
-        }
-        return newMessages;
-      });
-
-    } catch (error) {
-      console.error('Error:', error);
-      setError(error.message);
-      setMessages(prev => {
-        const newMessages = [...prev];
-        const lastMessage = newMessages[newMessages.length - 1];
-        if (lastMessage && lastMessage.role === 'assistant') {
-          lastMessage.content = 'Sorry, an error occurred. Please try again.';
-        }
-        return newMessages;
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const recentTopics = [
-    { title: "Binary Trees", icon: "📊", question: "Explain Binary Trees with examples" },
-    { title: "Network Protocols", icon: "🌐", question: "What are Network Protocols? Explain with examples" },
-    { title: "Sorting Algorithms", icon: "⚡", question: "Explain Sorting Algorithms with examples" }
-  ];
-
-  const handleTopicClick = async (topic) => {
-    setSidebarOpen(false);
-    if (!topic.question || isLoading) return;
-
-    const userMessage = topic.question;
-    setInput('');
-    setError(null);
-
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
-    setIsLoading(true);
-
-    // Add placeholder assistant message
-    setMessages(prev => [...prev, { role: 'assistant', content: '', sources: [] }]);
+    const RAG_API_URL = process.env.NEXT_PUBLIC_RAG_API_URL;
+    const RAG_NAMESPACE = process.env.NEXT_PUBLIC_RAG_NAMESPACE || 'default';
 
     try {
-      const RAG_API_URL = process.env.NEXT_PUBLIC_RAG_API_URL;
-      const RAG_NAMESPACE = process.env.NEXT_PUBLIC_RAG_NAMESPACE || 'default';
-
       const response = await fetch(RAG_API_URL, {
         method: 'POST',
         headers: {
@@ -327,16 +184,13 @@ export default function ChatInterface() {
         try {
           const errorData = JSON.parse(errorText);
           errDetail = errorData.detail || errorText;
-        } catch {
-          /* ignore parse error */
-        }
+        } catch { /* ignore */ }
         throw new Error(errDetail || `HTTP error! status: ${response.status}`);
       }
 
-      // Check if response supports streaming
+
       const reader = response.body?.getReader();
       if (!reader) {
-        // Fallback to non-streaming
         const raw = await response.text();
         let data, reply = '';
         try {
@@ -351,77 +205,62 @@ export default function ChatInterface() {
           const lastMessage = newMessages[newMessages.length - 1];
           if (lastMessage && lastMessage.role === 'assistant') {
             lastMessage.content = formatResponseText(reply) || 'No response received.';
-            lastMessage.sources = (data && data.sources) || [];
           }
           return newMessages;
         });
+
+        // Update recent topics on success
+        updateRecentTopics(userMessage, reply || 'No response received.');
         return;
       }
 
-      // Streaming implementation
       const decoder = new TextDecoder();
       let accumulatedText = '';
-      let sources = [];
 
       while (true) {
         const { done, value } = await reader.read();
-
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
-
-        // Try to parse as JSON (for structured streaming)
         try {
           const lines = chunk.split('\n').filter(line => line.trim());
-
           for (const line of lines) {
-            // Handle SSE format
             const cleanLine = line.replace(/^data:\s*/, '').trim();
             if (!cleanLine || cleanLine === '[DONE]') continue;
 
             try {
               const parsed = JSON.parse(cleanLine);
               const text = parsed.answer || parsed.response || parsed.content || parsed.message || parsed.delta || '';
-
-              if (text) {
-                accumulatedText += text;
-              }
-
-              if (parsed.sources) {
-                sources = parsed.sources;
-              }
+              if (text) accumulatedText += text;
             } catch {
-              // Not JSON, treat as plain text
               accumulatedText += cleanLine;
             }
           }
         } catch {
-          // Plain text streaming
           accumulatedText += chunk;
         }
 
-        // Update message with accumulated text (formatted)
         setMessages(prev => {
           const newMessages = [...prev];
           const lastMessage = newMessages[newMessages.length - 1];
           if (lastMessage && lastMessage.role === 'assistant') {
             lastMessage.content = formatResponseText(accumulatedText);
-            lastMessage.sources = sources;
           }
           return newMessages;
         });
       }
 
-      // Final update to ensure everything is set (formatted)
       setMessages(prev => {
         const newMessages = [...prev];
         const lastMessage = newMessages[newMessages.length - 1];
         if (lastMessage && lastMessage.role === 'assistant') {
           lastMessage.content = formatResponseText(accumulatedText) || 'No response received.';
-          lastMessage.sources = sources;
         }
         return newMessages;
       });
+
+      // Update recent topics on success
+      updateRecentTopics(userMessage, accumulatedText || 'No response received.');
 
     } catch (error) {
       console.error('Error:', error);
@@ -437,6 +276,43 @@ export default function ChatInterface() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSubmit = async (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    if (!input.trim() || isLoading) return;
+
+    const userMessage = input.trim();
+    setInput('');
+
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+
+    await processQuestion(userMessage);
+  };
+
+  const handleTopicClick = async (topic) => {
+    setSidebarOpen(false);
+    if (!topic.question || isLoading) return;
+
+    // If we already have the answer, just show it immediately WITHOUT fetching
+    if (topic.answer) {
+      setMessages(prev => [
+        ...prev,
+        { role: 'user', content: topic.question },
+        { role: 'assistant', content: topic.answer }
+      ]);
+      return;
+    }
+
+    // Fallback: if for some reason answer is missing, fetch it
+    await processQuestion(topic.question);
   };
 
   const SidebarContent = () => (
