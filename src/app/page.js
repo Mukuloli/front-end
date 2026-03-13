@@ -2,62 +2,39 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { Send, User, Sparkles, Menu, Plus, AlertCircle, X, LogOut, ChevronDown } from 'lucide-react';
+import { Send, User, Sparkles, Menu, Plus, AlertCircle, X, LogOut, ChevronDown, MessageSquare } from 'lucide-react';
 import MarkdownMessage from '@/components/MarkdownMessage';
 
 // Utility function to format response text
 const formatResponseText = (text) => {
   if (!text) return '';
-
   let formatted = text;
 
-  // STEP 1: Preservation - protect IP addresses and version numbers first
   formatted = formatted.replace(/(\d+)\s*\.\s*(\d+)\s*\.\s*(\d+)\s*\.\s*(\d+)/g, '$1.$2.$3.$4');
   formatted = formatted.replace(/(\d+)\s*\.\s*(\d+)/g, '$1.$2');
-
-  // STEP 2: Restore missing newlines before markdown elements
-  // Inject newline before headers if smashed: "...text.### Header" -> "...text.\n\n### Header"
   formatted = formatted.replace(/([^\n])(#{1,6}\s+)/g, '$1\n\n$2');
-
-  // Inject newline before list items if smashed: "...text.- Item" -> "...text.\n- Item"
   formatted = formatted.replace(/([^\n])(\s*[-*]\s+)/g, '$1\n$2');
-
-  // Inject newline before numbered lists: "...text.1. Item" -> "...text.\n1. Item"
   formatted = formatted.replace(/([^\n])(\s*\d+\.\s+)/g, '$1\n$2');
-
-  // STEP 3: Ensure space after # for headers if missing: "###Heading" -> "### Heading"
   formatted = formatted.replace(/^(#{1,6})([^#\s])/gm, '$1 $2');
-  // Handle smashed headers in the middle of text: "...text.###Heading" -> "...text.\n\n### Heading"
   formatted = formatted.replace(/([^\n])(#{1,6})([^#\s])/g, '$1\n\n$2 $3');
-
-  // STEP 4: Fix smashed words (SearchEngines -> Search Engines)
-  // CamelCase splitting
   formatted = formatted.replace(/([a-z])([A-Z])/g, '$1 $2');
-
-  // STEP 5: Fix punctuation spacing (Age.Some -> Age. Some)
   formatted = formatted.replace(/([a-z])([.!?])([A-Z])/g, '$1$2 $3');
   formatted = formatted.replace(/([a-z])([,;])([a-z])/g, '$1$2 $3');
 
-  // STEP 6: Surgical splitting for common technical and "glue" words
-  // These are words that commonly get smashed in these RAG responses
   const techGlue = ['search', 'engines', 'results', 'content', 'online', 'web', 'internet', 'include', 'using', 'based', 'often', 'popular'];
   techGlue.forEach(word => {
-    // Only split if the word is clearly part of a smash (at least 3 chars on one side)
     const regex1 = new RegExp(`([a-z]{3,})(${word})`, 'gi');
     formatted = formatted.replace(regex1, '$1 $2');
     const regex2 = new RegExp(`(${word})([a-z]{3,})`, 'gi');
     formatted = formatted.replace(regex2, '$1 $2');
   });
 
-  // STEP 7: Split common "glue" words if sandwiched
   const commonConnectors = ['the', 'and', 'with', 'from', 'this', 'that'];
   commonConnectors.forEach(word => {
-    // Split if the word is sandwiched between two lowercase strings (e.g., searchtheweb -> search the web)
     const regex = new RegExp(`([a-z]{3,})(${word})([a-z]{3,})`, 'gi');
     formatted = formatted.replace(regex, '$1 $2 $3');
   });
 
-  // STEP 8: Specific common smashes observed in your examples
   const specificSmashes = [
     [/WorldWide/g, 'World Wide'],
     [/basedon/g, 'based on'],
@@ -68,12 +45,9 @@ const formatResponseText = (text) => {
     formatted = formatted.replace(regex, replacement);
   });
 
-  // STEP 9: Remove literal asterisks (often used for citations)
   formatted = formatted.replace(/\*/g, '');
-
-  // STEP 10: Final cleanup of triple+ newlines and trimming
   formatted = formatted.replace(/\n{3,}/g, '\n\n');
-  formatted = formatted.replace(/[ \t]{2,}/g, ' '); // Clean up any double spaces but preserve newlines
+  formatted = formatted.replace(/[ \t]{2,}/g, ' ');
 
   return formatted.trim();
 };
@@ -116,18 +90,9 @@ export default function ChatInterface() {
 
   const updateRecentTopics = (question) => {
     if (!user) return;
-
     setRecentTopics(prev => {
-      // Find if topic already exists
       const filtered = prev.filter(t => t.question.toLowerCase() !== question.toLowerCase());
-
-      // Add new topic at the beginning
-      const newTopic = {
-        title: question,
-        icon: "💬",
-        question: question
-      };
-
+      const newTopic = { title: question, icon: "💬", question: question };
       const updated = [newTopic, ...filtered].slice(0, 10);
       return updated;
     });
@@ -137,9 +102,7 @@ export default function ChatInterface() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  useEffect(() => { scrollToBottom(); }, [messages]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -148,13 +111,57 @@ export default function ChatInterface() {
     }
   }, [input]);
 
+  // Simulate word-by-word streaming in the UI
+  const simulateStreaming = (fullText) => {
+    return new Promise((resolve) => {
+      const formatted = formatResponseText(fullText);
+      if (!formatted) {
+        setMessages(prev => {
+          const msgs = [...prev];
+          const last = msgs[msgs.length - 1];
+          if (last && last.role === 'assistant') last.content = 'No response received.';
+          return msgs;
+        });
+        resolve();
+        return;
+      }
+
+      // Split into words keeping whitespace/newlines intact
+      const words = formatted.match(/\S+|\s+/g) || [];
+      let displayed = '';
+      let i = 0;
+
+      const tick = () => {
+        // Add a few words per tick for a natural pace
+        const batch = Math.min(3, words.length - i);
+        for (let b = 0; b < batch; b++) {
+          displayed += words[i];
+          i++;
+        }
+
+        setMessages(prev => {
+          const msgs = [...prev];
+          const last = msgs[msgs.length - 1];
+          if (last && last.role === 'assistant') last.content = displayed;
+          return msgs;
+        });
+
+        if (i < words.length) {
+          setTimeout(tick, 25);
+        } else {
+          resolve();
+        }
+      };
+
+      tick();
+    });
+  };
+
   const processQuestion = async (userMessage) => {
     if (!userMessage.trim() || isLoading) return;
-
     setError(null);
     setIsLoading(true);
 
-    // Add user message and a placeholder assistant message
     setMessages(prev => [
       ...prev,
       { role: 'user', content: userMessage },
@@ -167,14 +174,8 @@ export default function ChatInterface() {
     try {
       const response = await fetch(RAG_API_URL, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          question: userMessage,
-          namespace: RAG_NAMESPACE,
-          top_k: 5
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: userMessage, namespace: RAG_NAMESPACE, top_k: 5 }),
       });
 
       if (!response.ok) {
@@ -187,78 +188,45 @@ export default function ChatInterface() {
         throw new Error(errDetail || `HTTP error! status: ${response.status}`);
       }
 
-
+      // Collect the full response first (works for both streaming & non-streaming APIs)
       const reader = response.body?.getReader();
+      let fullResponse = '';
+
       if (!reader) {
-        const raw = await response.text();
-        let data, reply = '';
-        try {
-          data = JSON.parse(raw);
-          reply = data.answer || data.response || data.content || data.message || '';
-        } catch {
-          reply = raw?.trim() || '';
-        }
-
-        setMessages(prev => {
-          const newMessages = [...prev];
-          const lastMessage = newMessages[newMessages.length - 1];
-          if (lastMessage && lastMessage.role === 'assistant') {
-            lastMessage.content = formatResponseText(reply) || 'No response received.';
-          }
-          return newMessages;
-        });
-
-        // Update recent topics on success
-        updateRecentTopics(userMessage);
-        return;
-      }
-
-      const decoder = new TextDecoder();
-      let accumulatedText = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        try {
-          const lines = chunk.split('\n').filter(line => line.trim());
-          for (const line of lines) {
-            const cleanLine = line.replace(/^data:\s*/, '').trim();
-            if (!cleanLine || cleanLine === '[DONE]') continue;
-
-            try {
-              const parsed = JSON.parse(cleanLine);
-              const text = parsed.answer || parsed.response || parsed.content || parsed.message || parsed.delta || '';
-              if (text) accumulatedText += text;
-            } catch {
-              accumulatedText += cleanLine;
+        fullResponse = await response.text();
+      } else {
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          try {
+            const lines = chunk.split('\n').filter(line => line.trim());
+            for (const line of lines) {
+              const cleanLine = line.replace(/^data:\s*/, '').trim();
+              if (!cleanLine || cleanLine === '[DONE]') continue;
+              try {
+                const parsed = JSON.parse(cleanLine);
+                const text = parsed.answer || parsed.response || parsed.content || parsed.message || parsed.delta || '';
+                if (text) fullResponse += text;
+              } catch {
+                fullResponse += cleanLine;
+              }
             }
+          } catch {
+            fullResponse += chunk;
           }
-        } catch {
-          accumulatedText += chunk;
         }
-
-        setMessages(prev => {
-          const newMessages = [...prev];
-          const lastMessage = newMessages[newMessages.length - 1];
-          if (lastMessage && lastMessage.role === 'assistant') {
-            lastMessage.content = formatResponseText(accumulatedText);
-          }
-          return newMessages;
-        });
       }
 
-      setMessages(prev => {
-        const newMessages = [...prev];
-        const lastMessage = newMessages[newMessages.length - 1];
-        if (lastMessage && lastMessage.role === 'assistant') {
-          lastMessage.content = formatResponseText(accumulatedText) || 'No response received.';
-        }
-        return newMessages;
-      });
+      // Try parsing as JSON (for APIs that return a JSON object)
+      try {
+        const data = JSON.parse(fullResponse);
+        fullResponse = data.answer || data.response || data.content || data.message || fullResponse;
+      } catch { /* not JSON, use as-is */ }
 
-      // Update recent topics on success
+      // Stream the response word-by-word in the UI
+      await simulateStreaming(fullResponse);
       updateRecentTopics(userMessage);
 
     } catch (error) {
@@ -278,21 +246,11 @@ export default function ChatInterface() {
   };
 
   const handleSubmit = async (e) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-
+    if (e) { e.preventDefault(); e.stopPropagation(); }
     if (!input.trim() || isLoading) return;
-
     const userMessage = input.trim();
     setInput('');
-
-    // Reset textarea height
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
-
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
     await processQuestion(userMessage);
   };
 
@@ -304,61 +262,69 @@ export default function ChatInterface() {
 
   const SidebarContent = () => (
     <>
-      <div className="p-3 sm:p-4 border-b border-gray-200">
+      {/* New Chat Button */}
+      <div className="p-4 border-b" style={{ borderColor: 'var(--border)' }}>
         <button
-          onClick={() => {
-            setMessages([]);
-            setError(null);
-            setSidebarOpen(false);
+          onClick={() => { setMessages([]); setError(null); setSidebarOpen(false); }}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200"
+          style={{
+            background: 'linear-gradient(135deg, var(--accent-start), var(--accent-end))',
+            color: '#fff',
+            boxShadow: '0 4px 15px rgba(99, 102, 241, 0.25)'
           }}
-          className="w-full flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shadow-sm text-sm sm:text-base"
         >
-          <Plus className="w-4 h-4 sm:w-5 sm:h-5 text-gray-700 flex-shrink-0" />
-          <span className="font-medium text-gray-700">New Chat</span>
+          <Plus className="w-4 h-4" />
+          <span>New Chat</span>
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 sm:p-3 space-y-1">
+      {/* Recent Topics */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-1">
         <button
           onClick={() => setTopicsOpen(!topicsOpen)}
-          className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+          className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold rounded-lg transition-colors sidebar-item"
+          style={{ color: 'var(--text-muted)' }}
         >
           <span className="uppercase tracking-wider">Recent Topics</span>
           <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${topicsOpen ? 'rotate-180' : ''}`} />
         </button>
 
         {topicsOpen && (
-          <div className="space-y-1 mt-1">
+          <div className="space-y-0.5 mt-1">
             {recentTopics.map((item, i) => (
               <button
                 key={i}
                 onClick={() => handleTopicClick(item)}
                 disabled={isLoading}
-                className="w-full flex items-center gap-2 sm:gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 text-left sidebar-item"
               >
-                <span className="text-base sm:text-lg flex-shrink-0">{item.icon}</span>
-                <span className="text-sm text-gray-700 truncate">{item.title}</span>
+                <MessageSquare className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
+                <span className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>{item.title}</span>
               </button>
             ))}
           </div>
         )}
       </div>
 
-      <div className="p-3 sm:p-4 border-t border-gray-200">
-        <div className="flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center flex-shrink-0">
+      {/* User Info */}
+      <div className="p-4 border-t" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex items-center gap-3 px-2 py-2">
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center flex-shrink-0 shadow-md">
             <User className="w-4 h-4 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-900 truncate">{displayName}</p>
-            <p className="text-xs text-gray-500 truncate">{emailLabel}</p>
+            <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{displayName}</p>
+            <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{emailLabel}</p>
           </div>
           <button
             onClick={() => setShowLogoutConfirm(true)}
-            className="p-2 bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 rounded-lg transition-all shadow-sm hover:shadow-md"
+            className="p-2 rounded-lg transition-all duration-200"
+            style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#f87171' }}
             title="Logout"
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; }}
           >
-            <LogOut className="w-4 h-4 text-white" />
+            <LogOut className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -366,38 +332,39 @@ export default function ChatInterface() {
   );
 
   return (
-    <div className="flex h-screen bg-white overflow-hidden">
+    <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
+          className="fixed inset-0 z-40 md:hidden modal-overlay"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       {/* Logout Confirmation Modal */}
       {showLogoutConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 sm:p-8">
-            <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-red-500 to-orange-500">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay animate-fade-in">
+          <div className="modal-card w-full max-w-md p-6 sm:p-8 animate-fade-in-up">
+            <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 rounded-2xl"
+              style={{ background: 'linear-gradient(135deg, #ef4444, #f97316)' }}>
               <LogOut className="w-8 h-8 text-white" />
             </div>
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 text-center mb-2">
+            <h2 className="text-xl sm:text-2xl font-bold text-center mb-2" style={{ color: 'var(--text-primary)' }}>
               Logout Confirmation
             </h2>
-            <p className="text-gray-600 text-center mb-6 sm:mb-8">
+            <p className="text-center mb-6 sm:mb-8" style={{ color: 'var(--text-secondary)' }}>
               Are you sure you want to logout?
             </p>
             <div className="flex gap-3 sm:gap-4">
               <button
                 onClick={() => setShowLogoutConfirm(false)}
-                className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-lg transition-colors"
+                className="btn-secondary flex-1 px-4 py-3 font-semibold rounded-xl"
               >
-                No
+                Cancel
               </button>
               <button
                 onClick={confirmLogout}
-                className="flex-1 px-4 py-3 bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 text-white font-semibold rounded-lg transition-all shadow-md hover:shadow-lg"
+                className="btn-danger flex-1 px-4 py-3 font-semibold rounded-xl"
               >
                 Yes, Logout
               </button>
@@ -406,23 +373,22 @@ export default function ChatInterface() {
         </div>
       )}
 
-      {/* Sidebar - Desktop */}
-      <div className="hidden md:flex md:w-64 lg:w-72 bg-gray-50 border-r border-gray-200 flex-col">
+      {/* Sidebar — Desktop */}
+      <div className="hidden md:flex md:w-64 lg:w-72 chat-sidebar flex-col">
         <SidebarContent />
       </div>
 
-      {/* Sidebar - Mobile */}
+      {/* Sidebar — Mobile */}
       <div
-        className={`fixed inset-y-0 left-0 w-64 sm:w-72 bg-gray-50 border-r border-gray-200 flex flex-col z-50 transform transition-transform duration-300 ease-in-out md:hidden ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-          }`}
+        className={`fixed inset-y-0 left-0 w-72 chat-sidebar flex flex-col z-50 transform transition-transform duration-300 ease-in-out md:hidden ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Menu</h2>
+        <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: 'var(--border)' }}>
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Menu</h2>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-2 rounded-lg transition-colors sidebar-item"
           >
-            <X className="w-5 h-5 text-gray-700" />
+            <X className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />
           </button>
         </div>
         <SidebarContent />
@@ -431,54 +397,58 @@ export default function ChatInterface() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="flex items-center justify-between px-3 sm:px-4 lg:px-6 py-3 sm:py-4 border-b border-gray-200 bg-white flex-shrink-0">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        <div className="chat-header flex items-center justify-between px-4 lg:px-6 py-3 sm:py-4 flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => setSidebarOpen(true)}
-              className="md:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
+              className="md:hidden p-2 rounded-lg transition-colors sidebar-item flex-shrink-0"
             >
-              <Menu className="w-5 h-5 text-gray-700" />
+              <Menu className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />
             </button>
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center flex-shrink-0 shadow-md"
+                style={{ boxShadow: '0 4px 12px rgba(99, 102, 241, 0.25)' }}>
+                <Sparkles className="w-4 h-4 text-white" />
               </div>
-              <h1 className="text-base sm:text-lg font-semibold text-gray-900 truncate">DSA & Networking AI</h1>
+              <h1 className="text-base sm:text-lg font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                DSA & Networking AI
+              </h1>
             </div>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-            <span className="hidden sm:inline-block px-2 sm:px-3 py-1 text-xs font-medium text-gray-600 bg-gray-100 rounded-full whitespace-nowrap">
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <span className="hidden sm:inline-block px-3 py-1 text-xs font-medium rounded-full"
+              style={{ background: 'rgba(99, 102, 241, 0.1)', color: '#818cf8', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
               RAG-Powered
             </span>
-            <div className="hidden sm:flex items-center gap-2 px-2 sm:px-3 py-1.5 border border-gray-200 rounded-full bg-white">
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">
+            <div className="hidden sm:flex items-center gap-2.5 px-3 py-1.5 rounded-full glass">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center">
                 <User className="w-3.5 h-3.5 text-white" />
               </div>
               <div className="flex flex-col leading-tight">
-                <span className="text-xs font-medium text-gray-900 truncate max-w-[160px]">{displayName}</span>
-                <span className="text-[11px] text-gray-500 truncate max-w-[160px]">{emailLabel}</span>
+                <span className="text-xs font-medium truncate max-w-[140px]" style={{ color: 'var(--text-primary)' }}>{displayName}</span>
+                <span className="text-[11px] truncate max-w-[140px]" style={{ color: 'var(--text-muted)' }}>{emailLabel}</span>
               </div>
             </div>
             <button
               onClick={() => setShowLogoutConfirm(true)}
-              className="flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 rounded-lg transition-all shadow-md hover:shadow-lg"
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 btn-danger rounded-lg text-sm"
               title="Logout"
             >
-              <LogOut className="w-4 h-4 text-white" />
-              <span className="hidden sm:inline text-sm font-semibold text-white">Logout</span>
+              <LogOut className="w-4 h-4" />
+              <span className="hidden sm:inline font-semibold">Logout</span>
             </button>
           </div>
         </div>
 
         {/* Error Banner */}
         {error && (
-          <div className="bg-red-50 border-b border-red-200 px-3 sm:px-4 lg:px-6 py-3 flex-shrink-0">
-            <div className="flex items-start sm:items-center gap-2 text-red-800 max-w-3xl mx-auto">
+          <div className="px-4 lg:px-6 py-3 flex-shrink-0">
+            <div className="error-banner flex items-start sm:items-center gap-2 px-4 py-3 max-w-3xl mx-auto">
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 sm:mt-0" />
               <p className="text-xs sm:text-sm flex-1 break-words">{error}</p>
               <button
                 onClick={() => setError(null)}
-                className="text-red-600 hover:text-red-800 text-xl font-bold flex-shrink-0 -mt-1"
+                className="flex-shrink-0 -mt-1 text-lg font-bold opacity-70 hover:opacity-100 transition-opacity"
               >
                 ×
               </button>
@@ -487,36 +457,60 @@ export default function ChatInterface() {
         )}
 
         {/* Messages Container */}
-        <div className="flex-1 overflow-y-auto bg-white pb-24 sm:pb-0">
+        <div className="flex-1 overflow-y-auto pb-24 sm:pb-0">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full px-4 py-8 max-w-3xl mx-auto">
-              <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center mb-4 sm:mb-6 shadow-lg">
-                <Sparkles className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center mb-6 shadow-xl"
+                style={{ boxShadow: '0 12px 40px rgba(99, 102, 241, 0.3)' }}>
+                <Sparkles className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
               </div>
-              <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2 sm:mb-3 text-center">DSA & Networking Assistant</h2>
-              <p className="text-sm sm:text-base text-gray-500 mb-6 sm:mb-8 text-center px-4">Ask anything about DSA or Networking</p>
+              <h2 className="text-2xl sm:text-4xl font-bold mb-3 text-center gradient-text">
+                DSA & Networking Assistant
+              </h2>
+              <p className="text-sm sm:text-base text-center mb-8 max-w-md" style={{ color: 'var(--text-muted)' }}>
+                Ask me anything about Data Structures, Algorithms, or Computer Networking
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg">
+                {[
+                  { q: 'Explain binary search trees', icon: '🌳' },
+                  { q: 'How does TCP handshake work?', icon: '🤝' },
+                  { q: 'What is dynamic programming?', icon: '⚡' },
+                  { q: 'Explain OSI model layers', icon: '📡' },
+                ].map((item, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { setInput(item.q); }}
+                    className="flex items-center gap-3 px-4 py-3 rounded-xl text-left text-sm transition-all duration-200 glass"
+                    style={{ color: 'var(--text-secondary)' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.3)'; e.currentTarget.style.background = 'rgba(99, 102, 241, 0.05)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)'; }}
+                  >
+                    <span className="text-lg">{item.icon}</span>
+                    <span>{item.q}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
-            <div className="max-w-3xl mx-auto py-4 sm:py-6 lg:py-8 px-3 sm:px-4">
+            <div className="max-w-3xl mx-auto py-6 lg:py-8 px-4">
               {messages.map((message, index) => (
                 <div
                   key={index}
-                  className={`flex gap-2 sm:gap-3 lg:gap-4 mb-4 sm:mb-6 lg:mb-8 ${message.role === 'user' ? 'justify-end' : 'justify-start'
-                    }`}
+                  className={`flex gap-3 lg:gap-4 mb-6 lg:mb-8 animate-fade-in-up ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  style={{ animationDelay: `${index * 50}ms` }}
                 >
                   {message.role === 'assistant' && (
-                    <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center shadow-sm">
-                      <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
+                    <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center shadow-md">
+                      <Sparkles className="w-4 h-4 text-white" />
                     </div>
                   )}
 
-                  <div
-                    className={`max-w-[85%] sm:max-w-[80%] ${message.role === 'user'
-                      ? 'bg-gray-900 text-white rounded-2xl rounded-tr-sm px-4 sm:px-5 py-2.5 sm:py-3 shadow-lg'
-                      : 'bg-transparent text-gray-800'
-                      }`}
+                  <div className={`max-w-[85%] sm:max-w-[80%] ${message.role === 'user'
+                    ? 'user-bubble px-5 py-3'
+                    : 'ai-bubble'
+                    }`}
                   >
-                    <div className="text-base sm:text-lg leading-relaxed break-words">
+                    <div className="text-base leading-relaxed break-words">
                       {message.role === 'assistant' ? (
                         <MarkdownMessage content={message.content} />
                       ) : (
@@ -524,23 +518,22 @@ export default function ChatInterface() {
                       )}
 
                       {message.role === 'assistant' && !message.content && isLoading && (
-                        <span className="inline-flex gap-1 ml-1">
-                          <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                          <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                          <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                        <span className="inline-flex gap-1.5 ml-1 py-1">
+                          <span className="typing-dot" />
+                          <span className="typing-dot" />
+                          <span className="typing-dot" />
                         </span>
                       )}
                       {message.role === 'assistant' && message.content && isLoading && (
-                        <span className="inline-block w-1 h-4 bg-gray-600 animate-pulse ml-0.5 mt-1"></span>
+                        <span className="inline-block w-0.5 h-5 ml-0.5 mt-1 rounded-full animate-pulse"
+                          style={{ background: 'var(--accent-start)' }} />
                       )}
                     </div>
-
-
                   </div>
 
                   {message.role === 'user' && (
-                    <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gray-900 flex items-center justify-center shadow-sm">
-                      <User className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
+                    <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-md">
+                      <User className="w-4 h-4 text-white" />
                     </div>
                   )}
                 </div>
@@ -551,9 +544,9 @@ export default function ChatInterface() {
         </div>
 
         {/* Input Area */}
-        <div className="border-t border-gray-200 bg-white px-3 sm:px-4 py-3 sm:py-4 flex-shrink-0 fixed sm:relative bottom-0 left-0 right-0 z-30">
+        <div className="chat-input-area px-4 py-3 sm:py-4 flex-shrink-0 fixed sm:relative bottom-0 left-0 right-0 z-30">
           <form onSubmit={handleSubmit} className="max-w-3xl mx-auto">
-            <div className="relative bg-white border border-gray-300 rounded-xl sm:rounded-2xl shadow-sm hover:shadow-md transition-shadow focus-within:border-gray-400 focus-within:shadow-md">
+            <div className="chat-input-box relative">
               <textarea
                 ref={textareaRef}
                 value={input}
@@ -566,18 +559,19 @@ export default function ChatInterface() {
                 }}
                 placeholder="Ask anything about DSA or Networking..."
                 rows={1}
-                className="w-full px-4 sm:px-5 py-3 sm:py-4 pr-12 sm:pr-14 bg-transparent text-sm sm:text-base text-gray-900 placeholder-gray-400 focus:outline-none resize-none max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent"
+                className="w-full px-5 py-3.5 pr-14 bg-transparent text-sm focus:outline-none resize-none max-h-32 overflow-y-auto"
+                style={{ color: 'var(--text-primary)' }}
                 disabled={isLoading}
               />
               <button
                 type="submit"
                 disabled={!input.trim() || isLoading}
-                className="absolute right-2 sm:right-3 bottom-2 sm:bottom-3 w-8 h-8 sm:w-9 sm:h-9 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg flex items-center justify-center transition-all shadow-sm disabled:shadow-none"
+                className="send-btn absolute right-3 bottom-3 w-9 h-9 flex items-center justify-center"
               >
-                <Send className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
+                <Send className="w-4 h-4 text-white" />
               </button>
             </div>
-            <p className="text-[10px] sm:text-xs text-gray-400 text-center mt-2 sm:mt-3 px-2">
+            <p className="text-[10px] sm:text-xs text-center mt-3 px-2" style={{ color: 'var(--text-muted)' }}>
               AI can make mistakes. Please verify important information.
             </p>
           </form>
