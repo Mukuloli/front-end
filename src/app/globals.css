@@ -372,6 +372,13 @@ body {
   backdrop-filter: blur(20px);
   border-right: 1px solid var(--border);
   position: relative;
+  display: none; /* Hide by default on mobile */
+}
+
+@media (min-width: 768px) {
+  .chat-sidebar {
+    display: flex; /* Show on desktop */
+  }
 }
 
 .chat-sidebar::after {
@@ -488,8 +495,9 @@ body {
    ═══════════════════════════════════════════════════════ */
 
 .modal-overlay {
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .modal-card {

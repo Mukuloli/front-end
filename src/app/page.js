@@ -282,7 +282,7 @@ export default function ChatInterface() {
       <div className="flex-1 overflow-y-auto p-3 space-y-1">
         <button
           onClick={() => setTopicsOpen(!topicsOpen)}
-          className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold rounded-lg transition-colors sidebar-item"
+          className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold rounded-lg cursor-pointer transition-colors sidebar-item"
           style={{ color: 'var(--text-muted)' }}
         >
           <span className="uppercase tracking-wider">Recent Topics</span>
@@ -296,7 +296,7 @@ export default function ChatInterface() {
                 key={i}
                 onClick={() => handleTopicClick(item)}
                 disabled={isLoading}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 text-left sidebar-item"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 text-left sidebar-item"
               >
                 <MessageSquare className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
                 <span className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>{item.title}</span>
@@ -374,7 +374,7 @@ export default function ChatInterface() {
       )}
 
       {/* Sidebar — Desktop */}
-      <div className="hidden md:flex md:w-64 lg:w-72 chat-sidebar flex-col">
+      <div className="hidden md:flex w-64 lg:w-72 chat-sidebar flex-col flex-shrink-0">
         <SidebarContent />
       </div>
 
@@ -480,7 +480,7 @@ export default function ChatInterface() {
                   <button
                     key={i}
                     onClick={() => { setInput(item.q); }}
-                    className="flex items-center gap-3 px-4 py-3 rounded-xl text-left text-sm transition-all duration-200 glass"
+                    className="flex items-center gap-3 px-4 py-3 cursor-pointer rounded-xl text-left text-sm transition-all duration-200 glass"
                     style={{ color: 'var(--text-secondary)' }}
                     onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.3)'; e.currentTarget.style.background = 'rgba(99, 102, 241, 0.05)'; }}
                     onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)'; }}
