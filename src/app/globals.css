@@ -372,13 +372,11 @@ body {
   backdrop-filter: blur(20px);
   border-right: 1px solid var(--border);
   position: relative;
-  display: none; /* Hide by default on mobile */
 }
 
-@media (min-width: 768px) {
-  .chat-sidebar {
-    display: flex; /* Show on desktop */
-  }
+.mobile-sidebar {
+  display: flex !important;
+  position: fixed !important;
 }
 
 .chat-sidebar::after {

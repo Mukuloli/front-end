@@ -380,7 +380,7 @@ export default function ChatInterface() {
 
       {/* Sidebar — Mobile */}
       <div
-        className={`fixed inset-y-0 left-0 w-72 chat-sidebar flex flex-col z-50 transform transition-transform duration-300 ease-in-out md:hidden ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`fixed inset-y-0 left-0 w-72 chat-sidebar mobile-sidebar flex flex-col z-50 transform transition-transform duration-300 ease-in-out md:hidden ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
         <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: 'var(--border)' }}>
           <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Menu</h2>
